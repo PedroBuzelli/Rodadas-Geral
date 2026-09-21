@@ -26,9 +26,9 @@ from .registro import Contexto, ErroAlteracao, Parametro, Resultado, registrar
 log = logging.getLogger(__name__)
 
 _P_CVU_DIR = Parametro("cvu_dir", "Pasta com os CSVs de CVU", "pasta", obrigatorio=True,
-                       externo="cvu_dir", lembrar=True)
+                       externo="cvu_dir")
 _P_CONJ = Parametro("conjuntural", "Qual CSV conjuntural usar", "opcao", ("revisado", "normal"), "revisado")
-_P_ANO = Parametro("ano_csv", "Ano no nome dos CSVs (Enter = ano do mes-alvo/dger)", "texto")
+_P_ANO = Parametro("ano_csv", "Ano no nome dos CSVs (padrao: ano do mes-alvo)", "texto", perguntar=False)
 
 _NOMES_CSV = {
     "estrutural": "custo_variavel_unitario_estrutural_{ano}.csv",

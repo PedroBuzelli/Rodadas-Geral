@@ -51,7 +51,7 @@ class Parametro:
     tipo: "texto", "opcao" (uma de ``opcoes``), "bool", "lista_int", "pasta" ou "arquivo".
     ``externo``: se informado, o valor vai para ``Contexto.dados_externos[externo]``
     (arquivos que nao fazem parte do deck) em vez de ``params[nome]``.
-    ``lembrar``: o menu oferece guardar o valor em config/local.json.
+    ``perguntar``: False = o menu nao pergunta (valor vem do padrao ou e' descoberto sozinho).
     """
     nome: str
     pergunta: str
@@ -60,7 +60,7 @@ class Parametro:
     padrao: object = None
     obrigatorio: bool = False
     externo: str | None = None
-    lembrar: bool = False
+    perguntar: bool = True
 
 
 @dataclass

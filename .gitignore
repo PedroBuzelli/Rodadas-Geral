@@ -221,9 +221,8 @@ __marimo__/
 decks exemplo/
 Arquivos CVU/
 
-# Saidas das rodadas e configuracao local (por computador)
+# Saidas das rodadas
 saidas/
-config/local.json
 
-# Decks de entrada (dados; nao sobem para o GitHub)
-decks/
+# Estudos com os decks de entrada (dados; nao sobem para o GitHub)
+Estudos/

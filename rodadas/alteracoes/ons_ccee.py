@@ -23,7 +23,9 @@ def _aplicavel(ctx: Contexto) -> tuple[bool, str]:
     if origem == "desconhecida":
         return False, "titulo do dger.dat nao comeca com PMO nem PLD; origem desconhecida"
     if "gtmin_ccee_xlsx" not in ctx.dados_externos:
-        return False, "planilha GTMIN CCEE nao informada"
+        esperado = (f"GTMIN_CCEE_{ctx.mes_alvo[0]:02d}{ctx.mes_alvo[1]}.xlsx" if ctx.mes_alvo
+                    else "GTMIN_CCEE_<mes><ano>.xlsx")
+        return False, f"planilha GTMIN CCEE nao encontrada (coloque {esperado} na pasta do deck ou do estudo)"
     return True, "deck de origem ONS (titulo PMO)"
 
 

@@ -1,45 +1,38 @@
-"""Menu interativo (uso local). Pergunta e monta o estudo; a execucao e' a mesma
-da API (``estudo.rodar_estudo``). Ao final a "receita" fica salva na pasta da rodada.
+"""Menu interativo (uso local).
+
+Fluxo: escolhe o estudo em ``Estudos/`` -> le todos os decks dele (tipo e mes-alvo
+pelo nome da pasta) -> escolhe as alteracoes de cada tipo de deck (NEWAVE e DECOMP
+tem alteracoes diferentes) -> confirma -> executa. As pastas sao fixas (ver README);
+o menu nao pergunta caminhos.
 
 ``entrada``/``saida`` podem ser trocadas (por padrao, teclado e tela).
 """
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Callable
 
 from . import estudo as est
-from .alteracoes import REGISTRO, Parametro
+from .alteracoes import REGISTRO, Contexto, Parametro
 from .alteracoes.registro import avaliar_aplicabilidade
-from .core.deck import DeckInvalido, carregar_deck
 from .core.dger import ler_dger
-
-CONFIG_LOCAL = est.RAIZ_PROJETO / "config" / "local.json"
-
-
-def carregar_config(caminho: Path = CONFIG_LOCAL) -> dict:
-    try:
-        return json.loads(Path(caminho).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-
-
-def salvar_config(config: dict, caminho: Path = CONFIG_LOCAL) -> None:
-    Path(caminho).parent.mkdir(parents=True, exist_ok=True)
-    Path(caminho).write_text(json.dumps(config, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _limpo(texto: str) -> str:
     return texto.strip().strip('"').strip("'").strip()
 
 
+def _fmt_mes(m) -> str:
+    return "sem mes no nome" if m is None else f"{m[0]:02d}/{m[1]}"
+
+
 class Menu:
     def __init__(self, entrada: Callable[[str], str] = input, saida: Callable[[str], None] = print,
-                 raiz_saidas: Path = est.RAIZ_SAIDAS, config_path: Path = CONFIG_LOCAL):
+                 pasta_estudos: Path = est.PASTA_ESTUDOS, raiz_saidas: Path = est.RAIZ_SAIDAS,
+                 pasta_cvu: Path = est.PASTA_CVU):
         self.entrada, self.saida = entrada, saida
-        self.raiz_saidas, self.config_path = raiz_saidas, config_path
+        self.pasta_estudos, self.raiz_saidas, self.pasta_cvu = pasta_estudos, raiz_saidas, pasta_cvu
 
     # -- perguntas ----------------------------------------------------------
     def _perguntar(self, texto: str, padrao=None) -> str:
@@ -48,164 +41,191 @@ class Menu:
         return resposta if resposta else ("" if padrao is None else str(padrao))
 
     def _sim_nao(self, texto: str, padrao: bool = False) -> bool:
-        resp = self._perguntar(f"{texto} (s/n)", "s" if padrao else "n").lower()
-        return resp.startswith("s")
+        return self._perguntar(f"{texto} (s/n)", "s" if padrao else "n").lower().startswith("s")
 
-    def _valor(self, p: Parametro, atual):
+    def _valor(self, p: Parametro):
         """Pergunta um parametro; devolve o valor (None = nao informado)."""
-        padrao = atual if atual not in (None, "") else p.padrao
         while True:
             if p.tipo == "opcao":
                 for i, o in enumerate(p.opcoes, 1):
                     self.saida(f"   {i}) {o}")
-                r = self._perguntar(p.pergunta, padrao)
+                r = self._perguntar(p.pergunta, p.padrao)
                 r = p.opcoes[int(r) - 1] if r.isdigit() and 1 <= int(r) <= len(p.opcoes) else r
                 if r in p.opcoes:
                     return r
                 self.saida("   Opcao invalida.")
-                continue
-            if p.tipo == "bool":
-                return self._sim_nao(p.pergunta, bool(padrao))
-            if p.tipo == "lista_int":
-                r = self._perguntar(p.pergunta, padrao)
+            elif p.tipo == "bool":
+                return self._sim_nao(p.pergunta, bool(p.padrao))
+            elif p.tipo == "lista_int":
+                r = self._perguntar(p.pergunta, p.padrao)
                 try:
                     return [int(x) for x in r.replace(",", " ").split()] if r and r != "[]" else []
                 except ValueError:
                     self.saida("   Use apenas numeros.")
-                    continue
-            r = self._perguntar(p.pergunta, padrao)
+            else:
+                r = self._perguntar(p.pergunta, p.padrao)
+                if r:
+                    return r
+                if not p.obrigatorio:
+                    return None
+                self.saida("   Campo obrigatorio.")
+
+    def _numeros(self, texto: str, padrao: str, maximo: int) -> list[int] | None:
+        """Le numeros (1..maximo, sem repetir) na ordem digitada. None = nenhum."""
+        while True:
+            r = self._perguntar(texto, padrao)
             if not r:
-                if p.obrigatorio:
-                    self.saida("   Campo obrigatorio.")
-                    continue
                 return None
-            if p.tipo == "pasta" and not Path(r).is_dir():
-                self.saida(f"   Pasta nao encontrada: {r}")
-                continue
-            if p.tipo == "arquivo" and not Path(r).is_file():
-                self.saida(f"   Arquivo nao encontrado: {r}")
-                continue
-            return r
-
-    # -- fluxo --------------------------------------------------------------
-    def _escolher_deck(self):
-        while True:
-            caminho = self._perguntar("Pasta do deck (Enter para sair)")
-            if not caminho:
-                return None, None
-            try:
-                return caminho, carregar_deck(caminho)
-            except DeckInvalido as e:
-                self.saida(f"   {e}")
-
-    def _mostrar_deck(self, deck) -> None:
-        self.saida(f"\nDeck {deck.tipo.upper()} identificado: {deck.pasta.name}")
-        if deck.tem("dger"):
-            d = ler_dger(deck.caminho("dger"))
-            self.saida(f"   inicio do estudo {d.mes_inicio:02d}/{d.ano_inicio} | origem {d.origem.upper()} | '{d.titulo}'")
-        elif deck.revisao:
-            self.saida(f"   revisao {deck.revisao}")
-
-    def _escolher_mes(self):
-        while True:
-            texto = self._perguntar("Mes-alvo AAAA-MM (Enter = nenhum)")
-            try:
-                est.parse_mes_alvo(texto)
-                return texto or None
-            except est.EstudoInvalido as e:
-                self.saida(f"   {e}")
-
-    def _escolher_alteracoes(self, estudo: dict, deck) -> list[str]:
-        disponiveis = [a for a in REGISTRO.values() if deck.tipo in a.modelos]
-        ctx = est.contexto_para_sugestao(estudo)
-        sugeridas = {a.nome: avaliar_aplicabilidade(a, ctx) for a in disponiveis}
-        self.saida("\nAlteracoes disponiveis para este deck:")
-        for i, a in enumerate(disponiveis, 1):
-            aplica, motivo = sugeridas[a.nome]
-            marca = "SUGERIDA" if aplica else "nao sugerida"
-            self.saida(f"  {i}) {a.nome} - {a.descricao}\n       [{marca}] {motivo}")
-        padrao = " ".join(str(i) for i, a in enumerate(disponiveis, 1) if sugeridas[a.nome][0])
-        while True:
-            r = self._perguntar("Quais aplicar? Numeros na ordem desejada (Enter = as sugeridas)", padrao)
             try:
                 idx = [int(x) for x in r.replace(",", " ").split()]
-                if idx and all(1 <= i <= len(disponiveis) for i in idx) and len(set(idx)) == len(idx):
-                    return [disponiveis[i - 1].nome for i in idx]
+                if idx and all(1 <= i <= maximo for i in idx) and len(set(idx)) == len(idx):
+                    return idx
             except ValueError:
                 pass
-            if not r:
-                return []
             self.saida("   Escolha invalida (use os numeros da lista, sem repetir).")
 
-    def _coletar_parametros(self, escolhidas: list[str], estudo: dict, config: dict) -> None:
-        externos, params = estudo["externos"], estudo["params"]
-        salvar: dict[str, str] = {}
-        for nome in escolhidas:
-            alt = REGISTRO[nome]
-            if not alt.parametros:
-                continue
-            self.saida(f"\n-- {nome}")
-            for p in alt.parametros:
-                if p.externo and p.externo in externos:
-                    continue  # ja perguntado em outra alteracao
-                atual = config.get(p.externo) if p.externo else None
-                valor = self._valor(p, atual)
-                if valor is None:
-                    continue
-                if p.externo:
-                    externos[p.externo] = valor
-                    if p.lembrar and valor != config.get(p.externo):
-                        salvar[p.externo] = valor
-                else:
-                    params.setdefault(nome, {})[p.nome] = valor
-        if salvar and self._sim_nao("\nGuardar essa(s) pasta(s) como padrao neste computador?", True):
-            salvar_config({**config, **salvar}, self.config_path)
-            self.saida("   Guardado em config/local.json")
+    # -- etapas -------------------------------------------------------------
+    def _escolher_estudo(self):
+        ids = est.listar_estudos(self.pasta_estudos)
+        if not ids:
+            self.saida(f"Nenhum estudo em {self.pasta_estudos.name}/. "
+                       f"Crie {self.pasta_estudos.name}/<ID>/<deck>/ (veja o README).")
+            return None
+        self.saida("Estudos encontrados: " + ", ".join(ids))
+        while True:
+            escolha = self._perguntar("ID do estudo (Enter para sair)", ids[0] if len(ids) == 1 else None)
+            if not escolha:
+                return None
+            if escolha in ids:
+                return escolha
+            self.saida(f"   Estudo {escolha!r} nao encontrado.")
+
+    def _mostrar_decks(self, encontrados, ignoradas) -> None:
+        self.saida("\nDecks encontrados:")
+        for i, d in enumerate(encontrados, 1):
+            info = f"{d.deck.tipo.upper()} | mes-alvo {_fmt_mes(d.mes_alvo)}"
+            if d.deck.tem("dger"):
+                g = ler_dger(d.deck.caminho("dger"))
+                info += f" | inicio no dger {g.mes_inicio:02d}/{g.ano_inicio} | origem {g.origem.upper()}"
+            elif d.deck.revisao:
+                info += f" | revisao {d.deck.revisao}"
+            self.saida(f"  {i}) {d.pasta.name}  [{info}]")
+        for nome in ignoradas:
+            self.saida(f"  (ignorada, nao e' deck: {nome})")
+
+    def _escolher_decks(self, encontrados):
+        if len(encontrados) == 1:
+            return list(encontrados)
+        idx = self._numeros("Quais decks processar? (Enter = todos)", "", len(encontrados))
+        return list(encontrados) if idx is None else [encontrados[i - 1] for i in idx]
+
+    def _sugestoes(self, grupo, alteracoes):
+        """{(alteracao, pasta do deck): (sugerida, motivo)}"""
+        sug = {}
+        for d in grupo:
+            ctx = Contexto(d.deck, d.mes_alvo, est.externos_padrao(d.pasta, d.mes_alvo, self.pasta_cvu))
+            for a in alteracoes:
+                sug[(a.nome, d.pasta.name)] = avaliar_aplicabilidade(a, ctx)
+        return sug
+
+    def _configurar_grupo(self, tipo: str, grupo, decks_entrada: list) -> None:
+        alteracoes = [a for a in REGISTRO.values() if tipo in a.modelos]
+        sug = self._sugestoes(grupo, alteracoes)
+        self.saida(f"\n=== Alteracoes para decks {tipo.upper()}: {', '.join(d.pasta.name for d in grupo)} ===")
+        for i, a in enumerate(alteracoes, 1):
+            self.saida(f"  {i}) {a.nome} - {a.descricao}")
+            for d in grupo:
+                ok, motivo = sug[(a.nome, d.pasta.name)]
+                self.saida(f"       {d.pasta.name}: {'SUGERIDA' if ok else 'nao sugerida'} - {motivo}")
+        padrao = " ".join(str(i) for i, a in enumerate(alteracoes, 1)
+                          if any(sug[(a.nome, d.pasta.name)][0] for d in grupo))
+        idx = self._numeros("Quais aplicar? Numeros na ordem desejada (Enter = as sugeridas)", padrao, len(alteracoes))
+        if not idx:
+            self.saida(f"   Nenhuma alteracao escolhida para os decks {tipo.upper()}.")
+            return
+        escolhidas = [alteracoes[i - 1] for i in idx]
+
+        params: dict[str, dict] = {}
+        for a in escolhidas:
+            perguntas = [p for p in a.parametros if p.perguntar and not p.externo]
+            if perguntas:
+                self.saida(f"\n-- {a.nome}")
+            for p in perguntas:
+                v = self._valor(p)
+                if v is not None:
+                    params.setdefault(a.nome, {})[p.nome] = v
+
+        for d in grupo:
+            aplicar = []
+            for a in escolhidas:
+                ok, motivo = sug[(a.nome, d.pasta.name)]
+                if ok or self._sim_nao(
+                        f"\n'{a.nome}' nao e' sugerida para {d.pasta.name} ({motivo}). Aplicar mesmo assim?", False):
+                    aplicar.append(a.nome)
+            if aplicar:
+                decks_entrada.append({
+                    "deck": self._caminho_relativo(d.pasta), "mes_alvo": est.formatar_mes(d.mes_alvo),
+                    "alteracoes": aplicar, "params": {n: params[n] for n in aplicar if n in params}})
+
+    @staticmethod
+    def _caminho_relativo(pasta: Path) -> str:
+        try:
+            return pasta.resolve().relative_to(est.RAIZ_PROJETO.resolve()).as_posix()
+        except ValueError:
+            return str(pasta)
 
     def _resumo(self, estudo: dict) -> None:
-        self.saida("\n=== Resumo da rodada ===")
-        self.saida(f"Deck     : {estudo['deck']}")
-        self.saida(f"Mes-alvo : {estudo.get('mes_alvo') or '-'}")
-        self.saida("Ordem    : " + " -> ".join(estudo["alteracoes"]))
-        for k, v in estudo["externos"].items():
-            self.saida(f"Externo  : {k} = {v}")
-        for nome, ps in estudo["params"].items():
-            self.saida(f"Params   : {nome} {ps}")
+        self.saida(f"\n=== Resumo da rodada (estudo {estudo['estudo']}) ===")
+        for d in estudo["decks"]:
+            self.saida(f"{Path(d['deck']).name}  (mes-alvo {d['mes_alvo'] or '-'}): " + " -> ".join(d["alteracoes"]))
+            for nome, ps in d["params"].items():
+                self.saida(f"     {nome}: {ps}")
 
     def executar(self):
-        """Roda uma rodada. Devolve a pasta da rodada ou None se cancelada/falhou."""
-        config = carregar_config(self.config_path)
+        """Roda uma rodada. Devolve o ResultadoEstudo ou None se cancelada."""
         self.saida("=== Rodadas-Geral ===")
-        caminho, deck = self._escolher_deck()
-        if deck is None:
+        estudo_id = self._escolher_estudo()
+        if estudo_id is None:
             return None
-        self._mostrar_deck(deck)
-        estudo = {"deck": caminho, "mes_alvo": self._escolher_mes(), "alteracoes": [],
-                  "externos": {}, "params": {}}
-        # externos ja guardados entram so na sugestao (nao no estudo)
-        estudo_sugestao = {**estudo, "externos": {k: v for k, v in config.items()}}
-        estudo["alteracoes"] = self._escolher_alteracoes(estudo_sugestao, deck)
-        if not estudo["alteracoes"]:
-            self.saida("Nenhuma alteracao escolhida. Nada foi feito.")
+        encontrados, ignoradas = est.descobrir_decks(self.pasta_estudos / estudo_id)
+        if not encontrados:
+            self.saida(f"Nenhum deck NEWAVE/DECOMP dentro de {self.pasta_estudos.name}/{estudo_id}/.")
             return None
-        self._coletar_parametros(estudo["alteracoes"], estudo, config)
+        self._mostrar_decks(encontrados, ignoradas)
+        selecionados = self._escolher_decks(encontrados)
+
+        decks_entrada: list[dict] = []
+        for tipo in ("newave", "decomp"):
+            grupo = [d for d in selecionados if d.deck.tipo == tipo]
+            if grupo:
+                self._configurar_grupo(tipo, grupo, decks_entrada)
+        if not decks_entrada:
+            self.saida("\nNenhuma alteracao a aplicar. Nada foi feito.")
+            return None
+
+        estudo = {"estudo": estudo_id, "decks": decks_entrada}
         self._resumo(estudo)
         if not self._sim_nao("\nExecutar agora?", True):
             self.saida("Cancelado.")
             return None
         try:
-            pasta, plano, resultados = est.rodar_estudo(estudo, self.raiz_saidas)
-        except Exception as e:  # noqa: BLE001 - mostra ao usuario; detalhes no log_rodada.json
-            self.saida(f"\n[ERRO] {e}\nO log da tentativa ficou em {self.raiz_saidas}")
+            resultado = est.rodar_estudo(estudo, self.raiz_saidas, pasta_cvu=self.pasta_cvu)
+        except Exception as e:  # noqa: BLE001 - mostra ao usuario
+            self.saida(f"\n[ERRO] {e}")
             return None
+
         self.saida("\n=== Resultado ===")
-        for r in resultados:
-            self.saida(f"{'ALTEROU ' if r.alterou else 'sem alteracao'} {r.alteracao}")
-            for aviso in r.avisos:
-                self.saida(f"     aviso: {aviso}")
-        self.saida(f"\nDeck alterado e log em: {pasta}")
-        self.saida("Para repetir esta rodada: python main.py estudo \"" + str(pasta / "estudo.json") + "\"")
-        return pasta
+        for d in resultado.decks:
+            self.saida(f"\n{d.deck}:")
+            if d.erro:
+                self.saida(f"   [ERRO] {d.erro}")
+            for r in d.resultados:
+                self.saida(f"   {'ALTEROU ' if r.alterou else 'sem alteracao'} {r.alteracao}")
+                for aviso in r.avisos:
+                    self.saida(f"        aviso: {aviso}")
+        self.saida(f"\nDecks alterados e log em: {resultado.pasta}")
+        self.saida("Para repetir esta rodada: python main.py estudo \"" + str(resultado.pasta / "estudo.json") + "\"")
+        return resultado
 
 
 def executar_menu() -> None:

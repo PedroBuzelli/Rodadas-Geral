@@ -1,12 +1,14 @@
 """Rolagem de horizonte de modif.dat, expt.dat e clast.dat (NEWAVE).
 
 A logica de rolagem esta nos modulos ``_*_original`` (portados sem alteracao de
-prepara-deck). Aqui ficam so o registro, a regra de aplicabilidade e a
-conferencia do mes-base:
+prepara-deck). Aqui ficam so o registro, a regra de aplicabilidade e as conferencias:
 
+- O mes-base e' deduzido do PROPRIO arquivo (menor data), como no algoritmo original.
+  O dger.dat nao serve de base: nos decks a rolar ele ja vem no mes-alvo.
 - Sugere rolar somente se mes-alvo > mes-base (se forem iguais nada mudaria).
-- O mes-base oficial e' o do dger.dat; o arquivo tambem o deduz sozinho e, se
-  os dois divergirem, a rolagem roda mesmo assim e devolve um AVISO.
+- Mes-alvo anterior ao mes-base: aviso e nao roda, mesmo se o usuario escolher.
+- Se o inicio do estudo no dger.dat for diferente do mes-alvo, a rolagem roda e
+  devolve um AVISO (o dger.dat nao e' alterado por esta alteracao).
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ def _fmt(d: tuple[int, int]) -> str:
     return f"{d[0]:02d}/{d[1]}"
 
 
-def _base_oficial(ctx: Contexto) -> tuple[int, int] | None:
+def _inicio_no_dger(ctx: Contexto) -> tuple[int, int] | None:
     if ctx.deck.tem("dger"):
         d = ler_dger(ctx.deck.caminho("dger"))
         return d.mes_inicio, d.ano_inicio
@@ -40,10 +42,10 @@ def _base_oficial(ctx: Contexto) -> tuple[int, int] | None:
 def _aplicavel(papel: str):
     def regra(ctx: Contexto) -> tuple[bool, str]:
         if ctx.mes_alvo is None:
-            return False, "mes-alvo nao informado"
+            return False, "mes-alvo nao identificado (coloque AAAAMM no nome da pasta do deck)"
         if not ctx.deck.tem(papel):
             return False, f"{papel}.dat nao encontrado no deck"
-        base = _base_oficial(ctx) or _BASE_DO_ARQUIVO[papel](ctx.deck.caminho(papel))
+        base = _BASE_DO_ARQUIVO[papel](ctx.deck.caminho(papel))
         if base is None:
             return False, f"{papel}.dat sem datas para rolar"
         if ctx.mes_alvo == base:
@@ -57,21 +59,20 @@ def _aplicavel(papel: str):
 def _executor(papel: str, nome: str, rolar: Callable[..., dict]):
     def executar(ctx: Contexto, params: dict) -> Resultado:
         if ctx.mes_alvo is None:
-            raise ErroAlteracao(f"{nome}: informe o mes-alvo")
+            raise ErroAlteracao(f"{nome}: mes-alvo nao identificado (coloque AAAAMM no nome da pasta do deck)")
         caminho = str(ctx.deck.caminho(papel))
         avisos: list[str] = []
-        oficial = _base_oficial(ctx)
-        no_arquivo = _BASE_DO_ARQUIVO[papel](ctx.deck.caminho(papel))
-        if oficial and no_arquivo and oficial != no_arquivo:
-            avisos.append(
-                f"mes-base do dger.dat ({_fmt(oficial)}) difere do deduzido em {papel}.dat "
-                f"({_fmt(no_arquivo)}); a rolagem usa o do proprio arquivo (algoritmo original)")
-        base = oficial or no_arquivo
+        base = _BASE_DO_ARQUIVO[papel](ctx.deck.caminho(papel))
         if base and to_idx(*ctx.mes_alvo) < to_idx(*base):
             avisos.append(
                 f"mes-alvo {_fmt(ctx.mes_alvo)} anterior ao mes-base {_fmt(base)}; "
                 f"rolagem nao executada")
             return Resultado(nome, False, {"arquivo": f"{papel}.dat", "alterado": False}, avisos)
+        inicio = _inicio_no_dger(ctx)
+        if inicio and inicio != ctx.mes_alvo:
+            avisos.append(
+                f"dger.dat indica inicio do estudo em {_fmt(inicio)}, diferente do mes-alvo "
+                f"{_fmt(ctx.mes_alvo)} (o dger.dat nao e' alterado por esta rolagem)")
         resumo = rolar(caminho, caminho, *ctx.mes_alvo)
         avisos += list(resumo.pop("avisos", []) or [])
         if resumo.get("aviso"):
