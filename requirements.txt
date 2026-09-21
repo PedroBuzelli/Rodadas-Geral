@@ -1,0 +1,4 @@
+# Dependencias das alteracoes portadas (o core nao precisa de nada alem do Python 3.10+)
+pandas          # cvu_clast, cvu_dadger (leitura dos CSVs de CVU)
+openpyxl        # ons_para_ccee (planilha GTMIN CCEE)
+matplotlib      # opcional: so com o parametro cvu_clast.graficos=true

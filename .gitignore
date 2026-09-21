@@ -216,3 +216,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Decks de exemplo (dados de entrada, nao versionar)
+decks exemplo/
+Arquivos CVU/
+
+# Saidas das rodadas e configuracao local (por computador)
+saidas/
+config/local.json
+
+# Decks de entrada (dados; nao sobem para o GitHub)
+decks/
