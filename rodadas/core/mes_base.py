@@ -61,7 +61,7 @@ def mes_base_modif(caminho: Path) -> tuple[int, int] | None:
     datas = []
     for linha in texto.ler(caminho).linhas:
         t = linha.split()
-        if len(t) < 3 or t[0] == "USINA":
+        if len(t) < 3 or t[0] in ("USINA", "TURBMAXT"):
             continue
         if re.fullmatch(r"\d{1,2}", t[1]) and re.fullmatch(r"\d{4}", t[2]) and 1 <= int(t[1]) <= 12:
             datas.append((int(t[1]), int(t[2])))

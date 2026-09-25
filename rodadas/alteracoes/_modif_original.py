@@ -28,7 +28,11 @@ _TOKEN_RE = re.compile(r"\S+")
 # registro desloca pela mesma distancia (novo inicio - antigo inicio),
 # mantendo o proprio valor, sem remover, sem criar e sem depender do
 # valor do registro.
-_TRANSLADA = {"TURBMAXT", "VMINT"}
+_TRANSLADA = {"VMINT"}
+
+# Palavras-chave que a rolagem nao toca (linhas copiadas como estao, e suas
+# datas nao entram na deteccao do mes-base).
+_IGNORADAS = {"TURBMAXT"}
 
 # Duracao do horizonte de estudo: 5 anos civis, sempre terminando em
 # dezembro do (ano-alvo + 4) — independente do mes de inicio. Ex.: uma
@@ -72,6 +76,9 @@ def _classify(raw: str, index: int) -> _Line:
     line.keyword = tokens[0].text
     if line.keyword == "USINA":
         line.is_usina_header = True
+        return line
+
+    if line.keyword in _IGNORADAS:
         return line
 
     if len(tokens) < 3:
